@@ -1,41 +1,15 @@
-# Stock Trading Application
+# Stock Discovery & Scanner App
 
-A modern full-stack application with a FastAPI Python backend and React frontend.
+A real-time stock discovery application using Streamlit with Interactive Brokers, Finnhub, Alpha Vantage, and Benzinga APIs.
 
 ## Project Structure
 
 ```
 stock-trading/
-├── backend/                         # FastAPI REST API
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py                  # FastAPI app entry
-│   │   ├── models/                  # Database models
-│   │   ├── routes/                  # API endpoints
-│   │   ├── schemas/                 # Pydantic schemas
-│   │   └── services/                # Business logic
-│   ├── tests/
-│   ├── config.py
-│   ├── requirements.txt
-│   └── .env.example
-│
-├── frontend/                        # React + Vite Frontend
-│   ├── src/
-│   │   ├── components/              # React components
-│   │   ├── pages/
-│   │   ├── styles/
-│   │   ├── utils/                   # API utilities
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   ├── public/
-│   ├── package.json
-│   ├── vite.config.js
-│   └── .env.example
-│
-├── streamlit_app/                   # Streamlit Stock Scanner
-│   ├── app.py                       # Main scanner app
-│   ├── requirements.txt
-│   ├── .env.example
+├── streamlit_app/                   # Stock Scanner Application
+│   ├── app.py                       # Main Streamlit app
+│   ├── requirements.txt             # Dependencies
+│   ├── .env.example                 # API keys template
 │   ├── .streamlit/
 │   │   └── config.toml
 │   └── README.md
@@ -46,112 +20,17 @@ stock-trading/
 
 ## Development
 
-### Running All Three Services
+### Running the Stock Scanner
 
-You can run all three services simultaneously in separate terminals:
-
-**Terminal 1 - FastAPI Backend** (port 8000):
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python app/main.py
-```
-
-**Terminal 2 - React Frontend** (port 3000/5173):
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-**Terminal 3 - Streamlit Stock Scanner** (port 8501):
-```bash
-cd streamlit_app
-pip install -r requirements.txt
-# Setup .env file with API keys (see streamlit_app/README.md)
-streamlit run app.py
-```
-
-Access all services:
-- 🎨 **Frontend**: `http://localhost:3000` (Vite) or `http://localhost:5173`
-- 🔧 **Backend API**: `http://localhost:8000`
-- 📊 **Stock Scanner**: `http://localhost:8501`
-- 📚 **API Docs**: `http://localhost:8000/docs`
-
-### Backend Only
-
-1. Navigate to the backend directory:
-```bash
-cd backend
-```
-
-2. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Create a `.env` file from the example:
-```bash
-cp .env.example .env
-```
-
-5. Run the server:
-```bash
-python app/main.py
-```
-
-The backend will be available at `http://localhost:8000`
-
-API documentation: `http://localhost:8000/docs`
-
-### Frontend Only
-
-1. Navigate to the frontend directory:
-```bash
-cd frontend
-```
-
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Create a `.env` file from the example:
-```bash
-cp .env.example .env
-```
-
-4. Start the development server:
-```bash
-npm run dev
-```
-
-The frontend will be available at `http://localhost:3000` (or `http://localhost:5173` for Vite default)
-
-### Streamlit Stock Scanner
-
-For detailed setup of the Streamlit app, see [streamlit_app/README.md](streamlit_app/README.md)
-
-**Quick Start:**
 ```bash
 cd streamlit_app
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env with your IBKR connection and API keys
+# Edit .env with your API keys and IBKR configuration
 streamlit run app.py
 ```
 
-**Requirements:**
-- Interactive Brokers TWS/Gateway running with Read-Only API enabled
-- Free API keys from: Finnhub, Alpha Vantage (optional: Benzinga)
+The app will open at `http://localhost:8501`
 
 ### Building for Production
 
