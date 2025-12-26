@@ -1,0 +1,13 @@
+# Streamlit Configuration
+[logger]
+level = "info"
+
+[client]
+showErrorDetails = true
+
+[server]
+port = 8501
+headless = true
+
+[browser]
+gatherUsageStats = false
