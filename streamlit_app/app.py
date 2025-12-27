@@ -3,6 +3,37 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import asyncio
+
+# Ensure an asyncio event loop exists for Streamlit's script thread.
+# Streamlit runs user code in a worker thread without a running loop,
+# but libraries like `ib_insync` expect `asyncio.get_event_loop()` to
+# return a loop at import-time. Create and set one if missing.
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        import nest_asyncio
+        nest_asyncio.apply(loop)
+    except Exception:
+        pass
+
+# Helper to run a coroutine whether the current loop is running or not.
+def run_async_coroutine(coro):
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if loop.is_running():
+        # If loop is already running (Streamlit), schedule the coroutine
+        # and wait for its result in a thread-safe way.
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
+    else:
+        return loop.run_until_complete(coro)
 import time
 from ib_insync import IB, Stock, BarData
 from finnhub import Client as FinnhubClient
@@ -32,7 +63,10 @@ async def connect_ibkr():
     """Connect to Interactive Brokers"""
     try:
         ib = IB()
-        ib.connect(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID)
+        # Connect in read-only mode to ensure this client never sends
+        # order or account-modifying requests. This flags the session
+        # as read-only to TWS/Gateway.
+        ib.connect(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID, readonly=True)
         await asyncio.sleep(0.5)  # Wait for connection
         return ib
     except Exception as e:
@@ -147,9 +181,6 @@ def get_news(ibkr_news, ticker):
 def scan_stocks(tickers, vol_threshold=2.0, float_max=10000000, short_min=20):
     """Scan stocks based on criteria"""
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
         async def run_scan():
             ib = await connect_ibkr()
             if not ib:
@@ -187,7 +218,7 @@ def scan_stocks(tickers, vol_threshold=2.0, float_max=10000000, short_min=20):
             
             return pd.DataFrame(results)
         
-        return loop.run_until_complete(run_scan())
+        return run_async_coroutine(run_scan())
     except Exception as e:
         st.error(f"Scan Error: {e}")
         return pd.DataFrame()

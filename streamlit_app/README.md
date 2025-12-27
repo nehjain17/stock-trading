@@ -46,6 +46,10 @@ cp .env.example .env
 # BENZINGA_API_KEY=your_key (optional)
 ```
 
+Note: The `.env` file has been populated with the provided API keys. The application
+loads keys from `.env` via `python-dotenv`—ensure `.env` remains git-ignored and
+do not commit it to version control. If you want to override or rotate keys, edit
+the `.env` file in the project root.
 ### 3. Enable IBKR Read-Only API
 
 1. Open **Interactive Brokers TWS** or **Gateway**

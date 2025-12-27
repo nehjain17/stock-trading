@@ -32,62 +32,44 @@ streamlit run app.py
 
 The app will open at `http://localhost:8501`
 
-### Building for Production
+## Building for Production
 
-Backend:
 ```bash
-cd backend
+cd streamlit_app
 pip install -r requirements.txt
-# Deploy using gunicorn or similar
+streamlit run app.py --logger.level=error
 ```
 
-Frontend:
-```bash
-cd frontend
-npm run build
-# Serves static files from dist/ directory
-```
+For deploying Streamlit, see [Streamlit Cloud Deployment](https://docs.streamlit.io/streamlit-community-cloud/deploy-your-app)
 
 ## API Endpoints
 
-- `GET /` - Welcome message
-- `GET /health` - Health check
-- `GET /docs` - Swagger UI documentation
-- `GET /redoc` - ReDoc documentation
+The stock scanner uses external APIs:
+- **IBKR** - Real-time price, volume, short interest, shortable shares
+- **Finnhub** - Company news and fundamentals
+- **Alpha Vantage** - News sentiment analysis
+- **Benzinga** - Premium news (optional)
 
 ## Technologies Used
 
-### Backend
-- FastAPI 0.109.0
-- Uvicorn 0.27.0
-- SQLAlchemy 2.0.23
-- Pydantic 2.5.0
-
-### Frontend
-- React 18.2.0
-- Vite 5.0.2
-- Axios 1.6.2
-
-### Stock Scanner (Streamlit)
-- Streamlit 1.28.0
-- ib_insync 10.19.0 (Interactive Brokers)
-- Finnhub Python Client (News & Company Data)
-- Alpha Vantage (News Sentiment)
-- Benzinga API (Premium News - Optional)
-- Plotly (Charts)
+- **Streamlit 1.28.0** - Web app framework
+- **ib_insync 10.19.0** - Interactive Brokers API
+- **Finnhub Python Client** - News & company data
+- **Alpha Vantage** - News sentiment
+- **Benzinga API** - Premium news (optional)
+- **Plotly** - Interactive charts
+- **Pandas** - Data manipulation
 
 ## Environment Variables
 
-### Backend (.env)
+See [streamlit_app/.env.example](streamlit_app/.env.example) for all configuration options:
 ```
-DEBUG=True
-APP_NAME="Stock Trading API"
-DATABASE_URL=sqlite:///./test.db
-```
-
-### Frontend (.env)
-```
-VITE_API_URL=http://localhost:8000
+IBKR_HOST=127.0.0.1
+IBKR_PORT=7497
+IBKR_CLIENT_ID=1
+FINNHUB_API_KEY=your_key
+ALPHA_VANTAGE_KEY=your_key
+BENZINGA_API_KEY=your_key (optional)
 ```
 
 ## Contributing
