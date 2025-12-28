@@ -166,10 +166,17 @@ def get_news(ibkr_news, ticker):
         # Benzinga (if key)
         if BENZINGA_API_KEY:
             bz_url = f'https://api.benzinga.com/api/v2/news?token={BENZINGA_API_KEY}&tickers={ticker}'
-            bz_resp = requests.get(bz_url, timeout=5).json()
-            news_list.extend([item['title'] for item in bz_resp.get('news', [])[:5]])
+            bz_resp = requests.get(bz_url, timeout=5)
+            if bz_resp.status_code == 200:
+                try:
+                    bz_data = bz_resp.json()
+                    news_list.extend([item['title'] for item in bz_data.get('news', [])[:5]])
+                except (ValueError, KeyError):
+                    pass  # Skip Benzinga if response is not valid JSON
+            else:
+                pass  # Skip Benzinga on HTTP error
     except Exception as e:
-        st.warning(f"Benzinga news error: {e}")
+        pass  # Silently skip Benzinga on timeout or connection error
     
     # Dedupe & Catalyst Filter
     positive_keywords = ['earnings beat', 'acquisition', 'partnership', 'FDA', 'upgrade', 'bullish', 'breakout']
