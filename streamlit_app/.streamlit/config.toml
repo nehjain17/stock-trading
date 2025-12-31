@@ -1,8 +1,8 @@
 [server]
 headless = true
 address = "127.0.0.1"
-port = 8501
-enableCORS = false
+port = 8503
+enableCORS = true
 enableXsrfProtection = true
 # Streamlit Configuration
 [logger]
