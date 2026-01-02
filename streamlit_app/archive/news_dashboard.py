@@ -1,389 +1,352 @@
 #!/usr/bin/env python3
 """
-Stock News Dashboard - Combined view of stocks and news
+IBKR Scanner + News Dashboard (Minimal header, browser scroll only)
+
+Fixes KeyError: 0 by using an explicit list for selectbox and mapping safely.
 """
-import streamlit as st
+
+import argparse
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Optional, Dict, Tuple, List
+
 import pandas as pd
-import sqlite3
-from datetime import datetime, timedelta
-import pytz
+import streamlit as st
 
-# Page config
-st.set_page_config(
-    page_title="Stock News Dashboard",
-    page_icon="📰",
-    layout="wide"
-)
+SCRIPT_DIR = Path(__file__).resolve().parent
 
-# Custom CSS to reduce sidebar width and optimize layout
-st.markdown("""
-    <style>
-    /* Reduce sidebar width */
-    [data-testid="stSidebar"][aria-expanded="true"] {
-        min-width: 200px;
-        max-width: 200px;
-    }
-    [data-testid="stSidebar"][aria-expanded="false"] {
-        min-width: 200px;
-        max-width: 200px;
-        margin-left: -200px;
-    }
-    /* Optimize main content area */
-    .main .block-container {
-        max-width: 100%;
-        padding-left: 1rem;
-        padding-right: 1rem;
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-    }
-    /* Make dataframe use full width */
-    div[data-testid="stDataFrame"] {
-        width: 100%;
-    }
-    /* Reduce sidebar top padding */
-    .css-1d391kg, [data-testid="stSidebar"] > div:first-child {
-        padding-top: 0.5rem;
-    }
-    /* Reduce spacing in sidebar */
-    [data-testid="stSidebar"] .element-container {
-        margin-bottom: 0.3rem;
-    }
-    [data-testid="stSidebar"] h1 {
-        font-size: 1.3rem;
-        margin-bottom: 0.5rem;
-        margin-top: 0.5rem;
-    }
-    [data-testid="stSidebar"] h3 {
-        font-size: 1rem;
-        margin-bottom: 0.3rem;
-        margin-top: 0.5rem;
-    }
-    [data-testid="stSidebar"] hr {
-        margin: 0.5rem 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=60)  # Cache for 1 minute
-def load_stock_data():
-    """Load stock fundamental data"""
+# ----------------------------
+# Path utilities
+# ----------------------------
+def resolve_path(p: str) -> Path:
+    raw = (p or "").strip()
+    if not raw:
+        return Path(raw)
+    path = Path(raw)
+    return path if path.is_absolute() else (SCRIPT_DIR / path).resolve()
+
+
+def pick_existing(primary: Path, fallback: Path) -> Path:
+    return primary if primary.exists() else fallback
+
+
+# ----------------------------
+# CLI args
+# ----------------------------
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--days", type=int, default=2)
+    args, _unknown = p.parse_known_args()
+    return args
+
+
+# ----------------------------
+# Data helpers
+# ----------------------------
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _to_float(x) -> Optional[float]:
     try:
-        df = pd.read_csv('all_stocks_complete.csv')
-        return df
-    except Exception as e:
-        st.error(f"Error loading stock data: {e}")
-        return pd.DataFrame()
+        if pd.isna(x):
+            return None
+        if isinstance(x, str) and x.strip().upper() in {"N/A", ""}:
+            return None
+        return float(x)
+    except Exception:
+        return None
 
-@st.cache_data(ttl=30)  # Cache for 30 seconds
-def load_news_data(source=None, hours=24):
-    """Load news from database"""
-    try:
-        conn = sqlite3.connect('news_cache.db')
-        
-        query = '''
-            SELECT 
-                symbol, 
-                headline, 
-                summary, 
-                source, 
-                url, 
-                published_at,
-                is_catalyst,
-                sentiment
-            FROM news
-            WHERE published_at >= ?
-        '''
-        params = [(datetime.now() - timedelta(hours=hours)).isoformat()]
-        
-        if source:
-            query += ' AND source = ?'
-            params.append(source)
-        
-        query += ' ORDER BY published_at DESC'
-        
-        df = pd.read_sql_query(query, conn, params=params)
-        conn.close()
-        
-        # Convert published_at to datetime with mixed format support, then remove timezone
-        df['published_at'] = pd.to_datetime(df['published_at'], format='mixed', utc=True).dt.tz_localize(None)
-        
-        return df
-    except Exception as e:
-        st.error(f"Error loading news: {e}")
-        return pd.DataFrame()
 
-def merge_stock_news(stocks_df, news_df):
-    """Merge stock data with ALL news items (not just latest)"""
+def fmt_money(v) -> str:
+    v = _to_float(v)
+    if v is None:
+        return "N/A"
+    if v >= 1e12:
+        return f"${v/1e12:.2f}T"
+    if v >= 1e9:
+        return f"${v/1e9:.2f}B"
+    if v >= 1e6:
+        return f"${v/1e6:.2f}M"
+    return f"${v:,.0f}"
+
+
+def fmt_num(v) -> str:
+    v = _to_float(v)
+    if v is None:
+        return "N/A"
+    if v >= 1e9:
+        return f"{v/1e9:.2f}B"
+    if v >= 1e6:
+        return f"{v/1e6:.2f}M"
+    if v >= 1e3:
+        return f"{v/1e3:.2f}K"
+    return f"{v:.2f}" if v < 10 else f"{v:.0f}"
+
+
+@st.cache_data(ttl=30)
+def load_scanner(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    if "symbol" in df.columns:
+        df["symbol"] = df["symbol"].astype(str).str.upper().str.strip()
+    return df
+
+
+@st.cache_data(ttl=30)
+def load_news(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    if "symbol" in df.columns:
+        df["symbol"] = df["symbol"].astype(str).str.upper().str.strip()
+    if "provider" in df.columns:
+        df["provider"] = df["provider"].astype(str).str.strip()
+    if "provider_name" in df.columns:
+        df["provider_name"] = df["provider_name"].astype(str).str.strip()
+
+    if "time_utc" in df.columns:
+        df["published_at_utc"] = pd.to_datetime(df["time_utc"], utc=True, errors="coerce")
+    elif "time" in df.columns:
+        df["published_at_utc"] = pd.to_datetime(df["time"], utc=True, errors="coerce")
+    else:
+        df["published_at_utc"] = pd.NaT
+
+    if "headline" not in df.columns:
+        df["headline"] = ""
+
+    return df
+
+
+def filter_news_last_days(news_df: pd.DataFrame, days: int) -> pd.DataFrame:
     if news_df.empty:
+        return news_df
+    cutoff = now_utc() - timedelta(days=days)
+    return news_df[news_df["published_at_utc"] >= cutoff].copy()
+
+
+def build_symbol_summary(scanner_df: pd.DataFrame, news_df: pd.DataFrame) -> pd.DataFrame:
+    if scanner_df.empty:
         return pd.DataFrame()
-    
-    # Select available columns from stock data
-    available_cols = ['symbol', 'name', 'market_cap', 'float_shares']
-    if 'share_outstanding' in stocks_df.columns:
-        available_cols.append('share_outstanding')
-    
-    # Merge ALL news with stock data
-    merged = news_df.merge(
-        stocks_df[available_cols],
-        on='symbol',
-        how='left'
+
+    if news_df.empty:
+        agg = pd.DataFrame({"symbol": scanner_df["symbol"].unique()})
+        agg["news_count"] = 0
+        agg["latest_headline"] = ""
+        agg["latest_news_time_utc"] = pd.NaT
+    else:
+        tmp = news_df.sort_values("published_at_utc", ascending=False).copy()
+        latest = tmp.dropna(subset=["published_at_utc"]).drop_duplicates(subset=["symbol"], keep="first")
+        latest = latest[["symbol", "headline", "published_at_utc"]].rename(columns={
+            "headline": "latest_headline",
+            "published_at_utc": "latest_news_time_utc",
+        })
+        counts = tmp.groupby("symbol", as_index=False).size().rename(columns={"size": "news_count"})
+        agg = counts.merge(latest, on="symbol", how="left")
+
+    out = scanner_df.merge(agg, on="symbol", how="left")
+    out["news_count"] = out["news_count"].fillna(0).astype(int)
+    return out
+
+
+# ----------------------------
+# Screener config
+# ----------------------------
+SCREENER_MAP: Dict[str, str] = {
+    "Most Active": "most_active",
+    "Top % Gainers": "top_gainers",
+    "Top % Losers": "top_losers",
+}
+
+SCREENER_LABELS: List[str] = list(SCREENER_MAP.keys())
+
+
+def screener_files(screener_slug: str) -> Tuple[Path, Path]:
+    preferred_scanner = resolve_path(f"ibkr_scanner_metrics_{screener_slug}.csv")
+    preferred_news = resolve_path(f"news_{screener_slug}_ALL_SYMBOLS.csv")
+
+    fallback_scanner = resolve_path("ibkr_scanner_metrics.csv")
+    fallback_news = resolve_path("news_ALL_SYMBOLS.csv")
+
+    scanner_path = pick_existing(preferred_scanner, fallback_scanner)
+    news_path = pick_existing(preferred_news, fallback_news)
+    return scanner_path, news_path
+
+
+# ----------------------------
+# UI
+# ----------------------------
+args = _parse_args()
+st.set_page_config(page_title="IBKR", page_icon="📰", layout="wide")
+
+st.markdown(
+    """
+    <style>
+      section[data-testid="stSidebar"] { width: 200px !important; }
+      .block-container {
+        padding-top: 0.4rem;
+        padding-bottom: 0.4rem;
+        padding-left: 0.6rem;
+        padding-right: 0.6rem;
+        max-width: 100%;
+      }
+      #MainMenu {visibility: hidden;}
+      footer {visibility: hidden;}
+      header {visibility: hidden;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Sidebar (FIXED)
+with st.sidebar:
+    st.markdown("### Screeners")
+
+    # selectbox returns a LABEL string from SCREENER_LABELS (never 0)
+    screener_label = st.selectbox(
+        "Screener",
+        options=SCREENER_LABELS,
+        index=0,
+        key="screener_label",
     )
-    
-    # Convert published_at to timezone-naive for calculation
-    if merged['published_at'].dt.tz is not None:
-        merged['published_at'] = merged['published_at'].dt.tz_localize(None)
-    
-    # Calculate time since news
-    merged['hours_ago'] = (datetime.now() - merged['published_at']).dt.total_seconds() / 3600
-    merged['hours_ago'] = merged['hours_ago'].round(1)
-    
-    # Sort by published time (most recent first)
-    merged = merged.sort_values('published_at', ascending=False)
-    
-    return merged
+    screener_slug = SCREENER_MAP.get(screener_label, "most_active")
 
-def format_market_cap(value):
-    """Format market cap for display"""
-    if pd.isna(value):
-        return "N/A"
-    if value >= 1e12:
-        return f"${value/1e12:.2f}T"
-    elif value >= 1e9:
-        return f"${value/1e9:.2f}B"
-    elif value >= 1e6:
-        return f"${value/1e6:.2f}M"
-    else:
-        return f"${value:,.0f}"
+    days = st.number_input("Days", min_value=1, max_value=30, value=int(args.days), step=1, key="days")
+    headline_search = st.text_input("Search", value="", placeholder="headline contains...", key="search").strip()
+    refresh = st.button("Refresh", key="refresh")
 
-def format_volume(value):
-    """Format volume for display"""
-    if pd.isna(value):
-        return "N/A"
-    if value >= 1e9:
-        return f"{value/1e9:.2f}B"
-    elif value >= 1e6:
-        return f"{value/1e6:.2f}M"
-    elif value >= 1e3:
-        return f"{value/1e3:.2f}K"
-    else:
-        return f"{value:,.0f}"
-
-# Sidebar
-st.sidebar.title("📰 News Dashboard")
-
-# View selection - clickable menu items
-st.sidebar.subheader("Views")
-
-# Initialize session state for selected view
-if 'selected_view' not in st.session_state:
-    st.session_state.selected_view = "Finnhub News"
-
-# Create clickable menu items
-views = [
-    "Finnhub News", 
-    "All News", 
-    "Low Float < 10M",
-    "Low Float < 50M",
-    "Low Float < 100M",
-    "High Volume Stocks",
-    "Benzinga News"
-]
-for view_name in views:
-    if st.sidebar.button(
-        view_name, 
-        key=f"btn_{view_name}",
-        use_container_width=True,
-        type="primary" if st.session_state.selected_view == view_name else "secondary"
-    ):
-        st.session_state.selected_view = view_name
-
-view = st.session_state.selected_view
-
-# Time filter - default to 7 days for low float views since they have less frequent news
-default_time_index = 4 if view.startswith("Low Float") else 2
-time_filter = st.sidebar.selectbox(
-    "News Time Range",
-    [6, 12, 24, 48, 168],
-    index=default_time_index,
-    format_func=lambda x: f"Last {x} hours" if x < 168 else "Last 7 days"
-)
-
-# Filters
-st.sidebar.subheader("Filters")
-
-# Search filter
-search_term = st.sidebar.text_input(
-    "🔍 Search Symbol or Name",
-    value="",
-    placeholder="e.g., AAPL or Apple",
-    help="Filter stocks by symbol or company name"
-).strip().upper()
-
-min_market_cap = st.sidebar.number_input(
-    "Min Market Cap ($M)",
-    min_value=0,
-    value=0,
-    step=100
-)
-
-show_catalysts_only = st.sidebar.checkbox("Catalyst News Only", value=False)
-
-# Load data
-stocks_df = load_stock_data()
-
-# Main content - compact header
-st.markdown(f"### 📰 Stock News Dashboard")
-
-# Display based on view
-if view == "Benzinga News":
-    news_df = load_news_data(source='Benzinga', hours=time_filter)
-    
-elif view == "Finnhub News":
-    news_df = load_news_data(source='Finnhub', hours=time_filter)
-    
-elif view == "All News":
-    news_df = load_news_data(hours=time_filter)
-
-elif view.startswith("Low Float"):
-    # Extract float threshold from view name
-    if "< 10M" in view:
-        float_threshold = 10e6
-    elif "< 50M" in view:
-        float_threshold = 50e6
-    elif "< 100M" in view:
-        float_threshold = 100e6
-    else:
-        float_threshold = 10e6
-    
-    # Filter stocks by float
-    if 'float_shares' in stocks_df.columns:
-        stocks_df = stocks_df[stocks_df['float_shares'] < float_threshold]
-    
-    news_df = load_news_data(hours=time_filter)
-    
-else:  # High Volume Stocks
-    news_df = load_news_data(hours=time_filter)
-
-# Apply filters
-if show_catalysts_only and not news_df.empty:
-    news_df = news_df[news_df['is_catalyst'] == 1]
-
-# Merge and display
-if not news_df.empty and not stocks_df.empty:
-    merged_df = merge_stock_news(stocks_df, news_df)
-    
-    # For low float views, only show news for stocks that are actually in the filtered stocks_df
-    if view.startswith("Low Float"):
-        merged_df = merged_df[merged_df['name'].notna()]
-    
-    # Apply search filter
-    if search_term:
-        merged_df = merged_df[
-            merged_df['symbol'].str.contains(search_term, case=False, na=False) |
-            merged_df['name'].str.contains(search_term, case=False, na=False)
-        ]
-    
-    # Apply market cap filter
-    if min_market_cap > 0:
-        merged_df = merged_df[merged_df['market_cap'] >= min_market_cap * 1e6]
-    
-    # Apply catalyst filter
-    if show_catalysts_only:
-        merged_df = merged_df[merged_df['is_catalyst'] == 1]
-    
-    # Sort based on view
-    if view == "High Volume Stocks":
-        # Sort by float shares or shares outstanding as proxy for volume
-        if 'float_shares' in merged_df.columns:
-            merged_df = merged_df.sort_values('float_shares', ascending=False, na_position='last')
-            st.info(f"**Note:** Sorted by float shares (volume data not available)")
-        elif 'share_outstanding' in merged_df.columns:
-            merged_df = merged_df.sort_values('share_outstanding', ascending=False, na_position='last')
-            st.info(f"**Note:** Sorted by shares outstanding (volume data not available)")
-        else:
-            merged_df = merged_df.sort_values('published_at', ascending=False)
-            st.warning("Volume/share data not available - showing by latest news")
-    else:
-        merged_df = merged_df.sort_values('published_at', ascending=False)
-    
-    # Compact summary stats
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Stocks", len(merged_df))
-    with col2:
-        st.metric("News", len(news_df))
-    with col3:
-        catalysts = merged_df['is_catalyst'].sum() if 'is_catalyst' in merged_df else 0
-        st.metric("Catalysts", int(catalysts))
-    with col4:
-        sources = news_df['source'].nunique() if not news_df.empty else 0
-        st.metric("Sources", sources)
-    
-    # Display table
-    if len(merged_df) > 0:
-        # Download option at top
-        csv = merged_df.to_csv(index=False)
-        st.download_button(
-            label="📥 CSV",
-            data=csv,
-            file_name=f"stock_news_{view.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
-        )
-        
-        # Prepare display dataframe with available columns
-        display_cols = ['symbol', 'name', 'headline', 'source', 'published_at', 'hours_ago', 'market_cap']
-        
-        # Add float_shares if available
-        if 'float_shares' in merged_df.columns:
-            display_cols.append('float_shares')
-        
-        display_cols.extend(['is_catalyst', 'url'])
-        
-        display_df = merged_df[display_cols].copy()
-        
-        # Format columns
-        display_df['market_cap'] = display_df['market_cap'].apply(format_market_cap)
-        if 'float_shares' in display_df.columns:
-            display_df['float_shares'] = display_df['float_shares'].apply(format_volume)
-        display_df['published_at'] = display_df['published_at'].dt.strftime('%Y-%m-%d %H:%M')
-        display_df['is_catalyst'] = display_df['is_catalyst'].map({1: '🔥', 0: ''})
-        
-        # Rename columns
-        col_names = ['Symbol', 'Name', 'Headline', 'Source', 'Published', 'Hours Ago', 'Market Cap']
-        if 'float_shares' in display_df.columns:
-            col_names.append('Float Shares')
-        col_names.extend(['Catalyst', 'URL'])
-        
-        display_df.columns = col_names
-        
-        # Display table with large height to fill viewport with own scrollbar
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            height=800,
-            column_config={
-                "URL": st.column_config.LinkColumn("URL"),
-                "Headline": st.column_config.TextColumn("Headline", width="large"),
-                "Symbol": st.column_config.TextColumn("Symbol", width="small"),
-                "Name": st.column_config.TextColumn("Name", width="medium"),
-            },
-            hide_index=True
-        )
-    else:
-        st.warning("No stocks match the current filters")
-else:
-    st.warning("No news data available. Make sure the news monitor is running.")
-    st.info("Start the news monitor with: `./start_news_monitor.sh`")
-
-# Refresh button
-if st.sidebar.button("🔄 Refresh Data"):
+if refresh:
     st.cache_data.clear()
     st.rerun()
 
-# Footer
-st.sidebar.markdown("---")
-st.sidebar.markdown("### About")
-st.sidebar.info(
-    "This dashboard combines stock fundamental data with real-time news from "
-    "Benzinga and Finnhub. News is automatically updated every 5 minutes."
+scanner_path, news_path = screener_files(screener_slug)
+
+# Load
+try:
+    scanner_df = load_scanner(str(scanner_path))
+except Exception as e:
+    st.error(f"Failed to read scanner CSV: {e}\n\nTried: {scanner_path}")
+    st.stop()
+
+try:
+    news_df = load_news(str(news_path))
+except Exception as e:
+    st.error(f"Failed to read news CSV: {e}\n\nTried: {news_path}")
+    st.stop()
+
+if "symbol" not in scanner_df.columns:
+    st.error("Scanner CSV must have a 'symbol' column.")
+    st.stop()
+
+scanner_symbols = sorted(scanner_df["symbol"].dropna().unique().tolist())
+
+# Filter news
+news_recent = filter_news_last_days(news_df, days=days)
+news_recent = news_recent[news_recent["symbol"].isin(scanner_symbols)]
+if headline_search:
+    news_recent = news_recent[news_recent["headline"].astype(str).str.contains(headline_search, case=False, na=False)]
+
+summary = build_symbol_summary(scanner_df, news_recent)
+
+# Minimal header line only
+st.caption(
+    f"{screener_label} • {len(scanner_symbols)} symbols • "
+    f"{len(news_recent)} news rows (last {days}d) • "
+    f"{int((summary['news_count'] > 0).sum())} symbols w/ news • "
+    f"{int(news_recent['provider'].nunique()) if 'provider' in news_recent.columns else 0} providers"
 )
+
+# Build table
+display = summary.copy()
+display["Market Cap"] = display["market_cap"].apply(fmt_money) if "market_cap" in display.columns else "N/A"
+display["Float"] = display["float_shares"].apply(fmt_num) if "float_shares" in display.columns else "N/A"
+display["Shortable Shares"] = display["shortable_shares"].apply(fmt_num) if "shortable_shares" in display.columns else "N/A"
+display["Trades/Min"] = display["trade_rate"].apply(fmt_num) if "trade_rate" in display.columns else "N/A"
+
+if "effective_volume_per_min" in display.columns:
+    display["Volume/Min"] = display["effective_volume_per_min"].apply(fmt_num)
+elif "computed_volume_per_min" in display.columns:
+    display["Volume/Min"] = display["computed_volume_per_min"].apply(fmt_num)
+else:
+    display["Volume/Min"] = "N/A"
+
+display["Volume"] = display["volume"].apply(fmt_num) if "volume" in display.columns else "N/A"
+display["Latest News (UTC)"] = pd.to_datetime(display.get("latest_news_time_utc", pd.NaT), utc=True, errors="coerce")
+display["Latest News (UTC)"] = display["Latest News (UTC)"].dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
+display["Latest Headline"] = display.get("latest_headline", "").fillna("")
+
+cols: List[str] = []
+for c in ["symbol", "description", "last", "pct_change"]:
+    if c in display.columns:
+        cols.append(c)
+
+cols += [
+    "Shortable Shares", "Market Cap", "Float", "Trades/Min", "Volume/Min", "Volume",
+    "Latest News (UTC)", "Latest Headline", "news_count"
+]
+
+final = display[cols].copy().rename(columns={
+    "symbol": "Symbol",
+    "description": "Description",
+    "last": "Last",
+    "pct_change": "% Change",
+    "news_count": "News Count",
+})
+
+# Download
+st.download_button(
+    "Download CSV",
+    data=final.to_csv(index=False).encode("utf-8"),
+    file_name=f"{screener_slug}_scanner_latest_news_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+    mime="text/csv",
+)
+
+# No height => browser scroll only
+st.dataframe(
+    final,
+    use_container_width=True,
+    column_config={
+        "Symbol": st.column_config.TextColumn("Symbol", width="small"),
+        "Description": st.column_config.TextColumn("Description", width="medium"),
+        "Latest Headline": st.column_config.TextColumn("Latest Headline", width="large"),
+        "Latest News (UTC)": st.column_config.TextColumn("Latest News (UTC)", width="small"),
+        "Market Cap": st.column_config.TextColumn("Market Cap", width="small"),
+        "Float": st.column_config.TextColumn("Float", width="small"),
+        "Shortable Shares": st.column_config.TextColumn("Shortable Shares", width="small"),
+        "Trades/Min": st.column_config.TextColumn("Trades/Min", width="small"),
+        "Volume/Min": st.column_config.TextColumn("Volume/Min", width="small"),
+        "Volume": st.column_config.TextColumn("Volume", width="small"),
+        "% Change": st.column_config.TextColumn("% Change", width="small"),
+        "Last": st.column_config.TextColumn("Last", width="small"),
+        "News Count": st.column_config.NumberColumn("News Count", width="small"),
+    },
+    hide_index=True,
+)
+
+# Headlines panel
+st.markdown("---")
+selected_symbol = st.selectbox("Headlines for", options=scanner_symbols, index=0, key="headline_symbol")
+
+sym_news = news_recent[news_recent["symbol"] == selected_symbol].copy().sort_values("published_at_utc", ascending=False)
+if sym_news.empty:
+    st.caption("No headlines for this symbol in the selected window.")
+else:
+    sym_show = sym_news[["published_at_utc", "provider", "provider_name", "headline", "articleId"]].copy()
+    sym_show["published_at_utc"] = sym_show["published_at_utc"].dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+    sym_show = sym_show.rename(columns={
+        "published_at_utc": "Published (UTC)",
+        "provider": "Provider",
+        "provider_name": "Provider Name",
+        "headline": "Headline",
+        "articleId": "Article ID",
+    })
+
+    st.dataframe(
+        sym_show,
+        use_container_width=True,
+        column_config={
+            "Headline": st.column_config.TextColumn("Headline", width="large"),
+            "Provider Name": st.column_config.TextColumn("Provider Name", width="medium"),
+            "Provider": st.column_config.TextColumn("Provider", width="small"),
+            "Published (UTC)": st.column_config.TextColumn("Published (UTC)", width="small"),
+        },
+        hide_index=True,
+    )

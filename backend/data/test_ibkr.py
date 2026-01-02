@@ -2,17 +2,21 @@
 """
 FAST SYNC VERSION (no asyncio):
 - Scanner -> symbols
-- Yahoo prefetch once
+- Yahoo prefetch once (marketCap/float/optional prevClose reference)
 - Process symbols in batches (default 10):
-    * start mkt data for 10 symbols
+    * start mkt data for N symbols
     * wait once
     * sample volume once
     * read all tickers
     * cancel all tickers
-This is much faster than doing wait+sample per symbol.
+
+IMPORTANT FIX:
+- % change is computed using IBKR values:
+    pct_change = (IB last - IB prev close) / (IB prev close) * 100
+  This matches IBKR screener far better than using Yahoo prevClose.
 
 Outputs CSV:
-rank,symbol,description,last,yahoo_prev_close,pct_change,volume,
+rank,symbol,description,last,ib_prev_close,yahoo_prev_close,pct_change,volume,
 shortable_shares,trade_rate,volume_rate,computed_volume_per_min,effective_volume_per_min,
 market_cap,float_shares
 """
@@ -34,7 +38,8 @@ SCANNER_CODES = {
     "hot_by_price": "HOT_BY_PRICE",
 }
 
-GENERIC_TICKS = "236,294,295"  # shortableShares, tradeRate, volumeRate
+# shortableShares, tradeRate, volumeRate
+GENERIC_TICKS = "236,294,295"
 
 
 def safe(v: Any) -> Any:
@@ -44,16 +49,16 @@ def safe(v: Any) -> Any:
 def set_market_data_type(ib: IB, prefer_delayed: bool) -> str:
     if prefer_delayed:
         try:
-            ib.reqMarketDataType(3)
+            ib.reqMarketDataType(3)  # delayed
             return "delayed"
         except Exception:
             pass
     try:
-        ib.reqMarketDataType(1)
+        ib.reqMarketDataType(1)  # real-time
         return "real-time"
     except Exception:
         try:
-            ib.reqMarketDataType(2)
+            ib.reqMarketDataType(2)  # frozen
             return "frozen"
         except Exception:
             return "unknown"
@@ -101,6 +106,10 @@ def compute_volume_per_min(vol0: Optional[float], vol1: Optional[float], dt_sec:
 
 
 def yahoo_batch_fetch(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+    """
+    Yahoo is used ONLY for enrichment (market cap / float / optional prevClose reference).
+    It is NOT used for % change anymore (IB prev close is used).
+    """
     try:
         import yfinance as yf
     except Exception:
@@ -123,20 +132,73 @@ def yahoo_batch_fetch(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
                 "prevClose": prev_close,
             }
         except Exception:
-            cache[sym] = {"marketCap": None, "floatShares": None, "sharesOutstanding": None, "prevClose": None}
+            cache[sym] = {
+                "marketCap": None,
+                "floatShares": None,
+                "sharesOutstanding": None,
+                "prevClose": None,
+            }
 
     return cache
 
 
-def pct_change_from(last: Optional[float], prev_close: Optional[float]) -> Optional[float]:
+def pct_change_int(last: Optional[float], prev_close: Optional[float]) -> Optional[float]:
     if last is None or prev_close is None or prev_close == 0:
         return None
-    return (last - prev_close) / prev_close * 100.0
+    return round(((last - prev_close) / prev_close) * 100.0, 2)
 
 
 def chunks(lst: List[Any], n: int):
     for i in range(0, len(lst), n):
         yield lst[i : i + n]
+
+
+def get_ib_last_price(ticker) -> Optional[float]:
+    """
+    Match TWS 'Last' as closely as possible.
+    Prefer last trade fields before marketPrice().
+    """
+    if ticker is None:
+        return None
+
+    # 1) Last trade (best match to TWS)
+    for attr in ("last", "delayedLast"):
+        v = getattr(ticker, attr, None)
+        if v is not None and v == v and v > 0:
+            return float(v)
+
+    # 2) If no last trade, use marketPrice (mid/bid/ask fallback)
+    try:
+        p = ticker.marketPrice()
+        if p is not None and p == p and p > 0:
+            return float(p)
+    except Exception:
+        pass
+
+    # 3) Final fallback
+    for attr in ("close", "price"):
+        v = getattr(ticker, attr, None)
+        if v is not None and v == v and v > 0:
+            return float(v)
+
+    return None
+
+
+def get_ib_prev_close(ticker) -> Optional[float]:
+    """
+    Prefer ticker.close (IB previous close). Some feeds may populate prevClose.
+    """
+    if ticker is None:
+        return None
+
+    for attr in ("close", "prevClose"):
+        v = getattr(ticker, attr, None)
+        if v is not None and v == v and v > 0:
+            try:
+                return float(v)
+            except Exception:
+                pass
+    return None
 
 
 def main():
@@ -167,12 +229,7 @@ def main():
     symbols = [s for s, _ in sym_desc]
     print(f"✓ Found {len(symbols)} symbols from scanner\n")
 
-    print("Scanner symbols:")
-    for i, s in enumerate(symbols, start=1):
-        print(f"{i:3d}. {s}")
-    print()
-
-    print("Prefetching Yahoo (prevClose/marketCap/float)...")
+    print("Prefetching Yahoo (marketCap/float/prevClose reference)...")
     yahoo = yahoo_batch_fetch(symbols)
 
     rows: List[Dict[str, Any]] = []
@@ -181,7 +238,7 @@ def main():
     for batch_idx, batch in enumerate(chunks(sym_desc, args.batch_size), start=1):
         # Build contracts for the batch
         contracts = []
-        desc_map = {}
+        desc_map: Dict[str, str] = {}
         for sym, desc0 in batch:
             c = Stock(sym, "SMART", "USD")
             contracts.append(c)
@@ -195,7 +252,7 @@ def main():
                 pass
 
         # Start market data for all in batch
-        tickers = []
+        tickers: List[Tuple[Any, Any]] = []
         for c in contracts:
             try:
                 t = ib.reqMktData(c, GENERIC_TICKS, snapshot=False, regulatorySnapshot=False)
@@ -238,6 +295,7 @@ def main():
                         "symbol": sym,
                         "description": desc if desc else "N/A",
                         "last": "N/A",
+                        "ib_prev_close": "N/A",
                         "yahoo_prev_close": safe(y_prev),
                         "pct_change": "N/A",
                         "volume": "N/A",
@@ -253,9 +311,11 @@ def main():
                 )
                 continue
 
-            last = getattr(t, "last", None) or getattr(t, "close", None)
-            vol1 = getattr(t, "volume", None)
+            # ✅ Use IB values for alignment with TWS screener
+            last = get_ib_last_price(t)
+            ib_prev_close = get_ib_prev_close(t)
 
+            vol1 = getattr(t, "volume", None)
             computed_vpm = compute_volume_per_min(vol0_map.get(sym), vol1, dt)
 
             shortable = getattr(t, "shortableShares", None)
@@ -266,7 +326,8 @@ def main():
             if (effective_vpm is None or effective_vpm == 0.0) and (computed_vpm is not None and computed_vpm > 0):
                 effective_vpm = computed_vpm
 
-            pct = pct_change_from(last, y_prev)
+            # ✅ % change uses IB prev close, not Yahoo
+            pct = pct_change_int(last, ib_prev_close)
 
             rows.append(
                 {
@@ -274,7 +335,8 @@ def main():
                     "symbol": sym,
                     "description": desc if desc else "N/A",
                     "last": safe(last),
-                    "yahoo_prev_close": safe(y_prev),
+                    "ib_prev_close": safe(ib_prev_close),
+                    "yahoo_prev_close": safe(y_prev),  # reference only
                     "pct_change": safe(pct),
                     "volume": safe(vol1),
                     "shortable_shares": safe(shortable),
@@ -299,7 +361,6 @@ def main():
 
     ib.disconnect()
 
-    # sort by rank
     rows.sort(key=lambda r: r.get("rank", 10**9))
 
     df = pd.DataFrame(rows).fillna("N/A")
@@ -307,25 +368,20 @@ def main():
     df.to_csv(args.output, index=False, na_rep="N/A")
 
     print(f"\n✓ Saved {len(df)} rows to {args.output}")
-    print(
-        df[
-            [
-                "rank",
-                "symbol",
-                "last",
-                "yahoo_prev_close",
-                "pct_change",
-                "volume",
-                "shortable_shares",
-                "trade_rate",
-                "effective_volume_per_min",
-                "market_cap",
-                "float_shares",
-            ]
-        ]
-        .head(10)
-        .to_string(index=False)
-    )
+    show_cols = [
+        "rank",
+        "symbol",
+        "last",
+        "ib_prev_close",
+        "pct_change",
+        "volume",
+        "shortable_shares",
+        "trade_rate",
+        "effective_volume_per_min",
+        "market_cap",
+        "float_shares",
+    ]
+    print(df[show_cols].head(15).to_string(index=False))
 
 
 if __name__ == "__main__":
