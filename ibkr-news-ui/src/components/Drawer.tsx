@@ -1,3 +1,4 @@
+// src/components/Drawer.tsx
 import React from "react";
 import type { HeadlineItem } from "../types";
 
@@ -17,10 +18,8 @@ export function Drawer(props: {
       <div style={styles.panel} onMouseDown={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>{title}</div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
-              Click outside to close
-            </div>
+            <div style={{ fontWeight: 900, fontSize: 16 }}>{title}</div>
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>Click outside to close</div>
           </div>
           <button onClick={onClose} style={styles.closeBtn}>✕</button>
         </div>
@@ -40,9 +39,20 @@ export function Drawer(props: {
                     <span style={styles.badge}>{it.provider}</span>
                     <span style={styles.meta}>{it.publishedUtc} UTC</span>
                   </div>
-                  <div style={styles.headline}>{it.headline}</div>
+
+                  <div style={styles.headline}>
+                    {it.url ? (
+                      <a href={it.url} target="_blank" rel="noreferrer" style={styles.link}>
+                        {it.headline}
+                      </a>
+                    ) : (
+                      it.headline
+                    )}
+                  </div>
+
                   <div style={styles.meta2}>
-                    {it.providerName}{it.articleId ? ` • ${it.articleId}` : ""}
+                    {it.providerName ? it.providerName : ""}
+                    {it.articleId ? ` • ${it.articleId}` : ""}
                   </div>
                 </div>
               ))}
@@ -64,8 +74,8 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 50,
   },
   panel: {
-    width: 520,
-    maxWidth: "92vw",
+    width: 560,
+    maxWidth: "95vw",
     height: "100vh",
     background: "white",
     boxShadow: "-10px 0 30px rgba(0,0,0,0.2)",
@@ -86,29 +96,23 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 10,
     padding: "8px 10px",
     cursor: "pointer",
-    fontWeight: 700,
+    fontWeight: 900,
   },
-  body: {
-    padding: 14,
-    overflow: "auto", // drawer scroll is fine; main page still uses browser scroll for table
-  },
+  body: { padding: 14, overflow: "auto" },
   muted: { opacity: 0.7 },
-  error: { color: "#b91c1c", fontWeight: 700 },
-  card: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 14,
-    padding: 12,
-  },
+  error: { color: "#b91c1c", fontWeight: 900 },
+  card: { border: "1px solid #e5e7eb", borderRadius: 14, padding: 12 },
   cardTop: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" },
   badge: {
     fontSize: 12,
     border: "1px solid #e5e7eb",
     padding: "2px 8px",
     borderRadius: 999,
-    fontWeight: 700,
+    fontWeight: 800,
     background: "#f8fafc",
   },
   meta: { fontSize: 12, opacity: 0.7 },
-  headline: { marginTop: 8, fontWeight: 700, lineHeight: 1.3 },
+  headline: { marginTop: 8, fontWeight: 800, lineHeight: 1.35 },
   meta2: { marginTop: 6, fontSize: 12, opacity: 0.7 },
+  link: { color: "#111827", textDecoration: "underline" },
 };

@@ -307,6 +307,7 @@ st.divider()
 
 # Main data table
 friendly_names = {
+    'all': 'All (Merged)',
     'top_gainers': 'Top % Gainers',
     'after_hours_gainers': 'Top % Gainers',
     'top_losers': 'Top % Losers',

@@ -1,43 +1,62 @@
-export type Screener = "most_active" | "top_gainers" | "top_losers";
+// src/types.ts
+export type ScreenerRow = {
+  screener?: string | null;
+  screenerLabel?: string | null;
 
-export interface ScreenerRow {
-  symbol: string;
-  description: string;
-  last: string | number | null;
-  pctChange: string | number | null;
-  shortableShares: string | number | null;
-  marketCap: string | number | null;
-  floatShares: string | number | null;
-  tradesPerMin: string | number | null;
-  volumePerMin: string | number | null;
-  volume: string | number | null;
-  latestNewsUtc: string | null;       // "2025-12-31 22:24:16"
-  latestHeadline: string | null;
-  newsCount: number;
-}
+  symbol?: string;
+  ticker?: string;
 
-export interface ScreenerResponse {
-  screener: Screener;
-  screenerLabel: string;
+  last?: number | null;
+  prevClose?: number | null;
+  pctChange?: number | null;
+
+  // snake_case (if backend ever returns)
+  vol_10m?: number | null;
+  vpm_10m?: number | null;
+  trades_10m?: number | null;
+
+  vwap_30m?: number | null;
+  high_prev_30m?: number | null;
+  vpm_base?: number | null;
+  accel?: number | null;
+  breakout_score?: number | null;
+
+  // camelCase (your backend currently returns these too)
+  vol10m?: number | null;
+  vpm10m?: number | null;
+  trades10m?: number | null;
+
+  vwap30m?: number | null;
+  highPrev30m?: number | null;
+  vpmBase?: number | null;
+  breakoutScore?: number | null;
+
+  // news
+  newsCount?: number | null;
+  latestNewsUtc?: string | null;
+  latestHeadline?: string | null;
+
+  // optional
+  shortable_shares?: number | null;
+  shortableShares?: number | null;
+
+  // allow extra fields
+  [k: string]: any;
+};
+
+export type ScreenerResponse = {
+  screener: string;
+  screenerLabel?: string;
   days: number;
-  symbols: number;
-  newsRows: number;
-  symbolsWithNews: number;
-  providers: number;
+
+  symbols?: number;
+  newsRows?: number;
+  symbolsWithNews?: number;
+  providers?: number;
+
   rows: ScreenerRow[];
-}
 
-export interface HeadlineItem {
-  symbol: string;
-  publishedUtc: string;   // "2025-12-31 22:24:16"
-  provider: string;
-  providerName: string;
-  headline: string;
-  articleId?: string | null;
-}
-
-export interface HeadlinesResponse {
-  symbol: string;
-  days: number;
-  items: HeadlineItem[];
-}
+  scannerFiles?: string[];
+  newsFiles?: string[];
+  warnings?: string[];
+};

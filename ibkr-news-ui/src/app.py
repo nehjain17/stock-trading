@@ -124,7 +124,7 @@ def api_screener(screener: str = "most_active", days: int = 3, search: str = "")
     news_rows = int(len(news_recent))
     symbols_with_news = int((merged["news_count"] > 0).sum())
 
-    label_map = {"most_active": "Most Active", "top_gainers": "Top % Gainers", "top_losers": "Top % Losers"}
+    label_map = {"all": "All (Merged)", "most_active": "Most Active", "top_gainers": "Top % Gainers", "top_losers": "Top % Losers"}
 
     return {
         "screener": screener,
