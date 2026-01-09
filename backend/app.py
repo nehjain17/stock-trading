@@ -448,7 +448,7 @@ def build_rows(scanner_df: pd.DataFrame, news_df: pd.DataFrame) -> Tuple[List[Di
     # ----------------------------
     out_rows: List[Dict[str, Any]] = []
     for _, r in df.iterrows():
-        pct_change_val = r.get("pct_change") if "pct_change" in df.columns else r.get("pctChange")
+        pct_change_val = (r.get("pct_change") if "pct_change" in df.columns else r.get("pct_chg") if "pct_chg" in df.columns else r.get("pctChange"))
         shortable_val = r.get("shortable_shares") if "shortable_shares" in df.columns else r.get("Shortable")
 
         vol_1m = pick_num(r, "vol_1m", "Vol(1m)")
@@ -465,7 +465,7 @@ def build_rows(scanner_df: pd.DataFrame, news_df: pd.DataFrame) -> Tuple[List[Di
         vwap_30m = pick_num(r, "vwap_30m", "VWAP(30m)")
         vwap5_dist = pick_num(r, "vwap5_dist", "VWAP5 Dist")
         vwap30_dist = pick_num(r, "vwap30_dist", "VWAP30 Dist")
-        relvol = pick_num(r, "relvol", "RelVol")
+        relvol = pick_num(r, "relvol", "rel_vol", "RelVol")
 
         rsi14 = pick_num(r, "rsi14", "RSI(14)")
         macd = pick_num(r, "macd", "MACD")
